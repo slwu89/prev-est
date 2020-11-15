@@ -24,13 +24,13 @@ santa_clara <- '
     real<lower=0, upper = 1> spec;
     real<lower=0, upper = 1> sens;
   }
+  transformed parameters {
+    real<lower=0, upper=1> p_sample = p * sens + (1 - p) * (1 - spec);
+  }
   model {
-    // priors
     p ~ beta(1,1);
     spec ~ beta(1,1);
     sens ~ beta(1,1);
-    // likelihood model
-    real p_sample = p * sens + (1 - p) * (1 - spec);
     y_sample ~ binomial(n_sample, p_sample);
     y_spec ~ binomial(n_spec, spec);
     y_sens ~ binomial(n_sens, sens);
@@ -78,11 +78,16 @@ santa_clara_n <- nimble::nimbleCode({
 sc_model_n <- nimble::nimbleModel(
   code = santa_clara_n,
   data = list(y_sample=50, y_spec=369+30, y_sens=25+78),
-  constants = list(n_sample = 3330, n_spec=401, n_sens=122)
+  constants = list(n_sample = 3330, n_spec=401, n_sens=122),
+  inits = list(p = 0.1, spec = 0.9, sens= 0.9)
 )
 
 sc_model_mcmc_n <- nimble::buildMCMC(conf = sc_model_n,thin = 10)
 
-sc_model_cpp_mcmc_n <- nimble::compileNimble(sc_model_n, sc_model_mcmc_n)
+sc_model_cpp_n <- nimble::compileNimble(sc_model_n)
 
-sc_model_mcmc_n$run(niter = 2e4,nburnin = 500)
+sc_model_cpp_mcmc_n <- nimble::compileNimble(sc_model_mcmc_n, project = sc_model_n)
+
+samples <- nimble::runMCMC(mcmc = sc_model_cpp_mcmc_n,niter = 1e5,nburnin = 1e4,thin = 10,progressBar = TRUE)
+
+hist(samples[,"p"])
