@@ -200,26 +200,17 @@ sc_hier_n <- nimble::nimbleCode({
   
   # likelihood for 13 spec studies
   for(i in 1:J_spec){
-    y_spec[i] ~ dbinom(prob = ilogit(logit_spec[i]), size = n_spec[i]) 
+    y_spec[i] ~ dbinom(prob = ilogit(logit_spec[i]), size = n_spec[i])
   }
   # likelihood for 3 sens studies
   for(i in 1:J_sens){
     y_sens[i] ~ dbinom(prob = ilogit(logit_sens[i]), size = n_sens[i])
   }
+  
   # likelihood for SC data
   p_sample <- p * ilogit(logit_sens[1]) + (1 - p) * (1 - ilogit(logit_spec[1])) # SC frequency of positive tests (prevalence corrected for imperfect tests)
   y_sample ~ dbinom(prob = p_sample, size = n_sample)
 })
-
-# inits <- list(
-#   p = runif(n = 1),
-#   mu_logit_spec = rnorm(n = 1,mean = 4,sd = 2),
-#   mu_logit_sens = rnorm(n = 1,mean = 4,sd = 2),
-#   sigma_logit_spec = rnorm(n = 1,mean = 0,sd = 1),
-#   sigma_logit_sens = rnorm(n = 1,mean = 0,sd = 1),
-#   logit_spec = rnorm(n = 14,mean = 4,sd = 2),
-#   logit_sens = rnorm(n = 4,mean = 4,sd = 2)
-# )
 
 sc_hier_model_n <- nimble::nimbleModel(
   code = sc_hier_n,
@@ -432,3 +423,141 @@ sc_hier_mrp_model <- rstan::stan(
   control=list(adapt_delta=0.95),
   verbose = TRUE
 )
+
+
+# NIMBLE version
+sc_mrp_nimble <- nimble::nimbleCode({
+  
+  # prior models
+  
+  # hyperpriors for sd of random intercepts
+  sigma_eth ~ T(dnorm(mean = 0, sd = coef_prior_scale), min = 0) # ethnicity
+  sigma_age ~ T(dnorm(mean = 0, sd = coef_prior_scale), min = 0) # age category
+  sigma_zip ~ T(dnorm(mean = 0, sd = coef_prior_scale), min = 0) # zip code
+  
+  # random intercepts
+  for(i in 1:4){
+    a_eth[i] ~ dnorm(mean = 0, sd = sigma_eth)
+    a_age[i] ~ dnorm(mean = 0, sd = sigma_age)
+  }
+  for(i in 1:N_zip){
+    a_zip ~ dnorm(mean = 0, sd = sigma_zip)
+  }
+  
+  mu_logit_spec ~ dnorm(mean = 4, sd = 2) # hyperprior on mean of distribution of spec (gamma)
+  mu_logit_sens ~ dnorm(mean = 4, sd = 2) # hyperprior on mean of distribution of sens (delta)
+  sigma_logit_spec ~ T(dnorm(mean = 0, sd = logit_spec_prior_scale),min = 0) # hyperprior on sd of distribution of spec (gamma)
+  sigma_logit_sens ~ T(dnorm(mean = 0, sd = logit_sens_prior_scale),min = 0) # hyperprior on sd of distribution of sens (delta)
+  
+  # priors (for studies)
+  for(i in 1:J_spec){
+    logit_spec[i] ~ dnorm(mean = mu_logit_spec, sd = sigma_logit_spec) # spec prior is normal on log-odds scale
+  }
+  for(i in 1:J_sens){
+    logit_sens[i] ~ dnorm(mean = mu_logit_sens, sd = sigma_logit_sens) # sens prior is normal on log-odds scale
+  }
+  
+  # prior on centered intercept
+  b[2] ~ dnorm(mean = 0, sd = coef_prior_scale)
+  b[3] ~ dnorm(mean = 0, sd = coef_prior_scale / sd(x_zip_zip[]))
+  b[1] + b[2] * mean(male[]) + b[3] * mean(x_zip_zip[]) ~ dlogis(location = 0, scale = 1)
+  
+  # likelihood models
+  
+  # likelihood for 13 spec studies
+  for(i in 1:J_spec){
+    y_spec[i] ~ dbinom(prob = ilogit(logit_spec[i]), size = n_spec[i])
+  }
+  # likelihood for 3 sens studies
+  for(i in 1:J_sens){
+    y_sens[i] ~ dbinom(prob = ilogit(logit_sens[i]), size = n_sens[i])
+  }
+  
+  # likelihood model for SC data
+  for(i in 1:N){
+    p[i] <- ilogit(b[1] + b[2] * male[i] + b[3] * x_zip_zip[i] + a_eth[eth[i]] + a_age[age[i]] + a_zip[zip[i]])
+    p_sample[i] <- p[i] * ilogit(logit_sens[1]) + (1 - p[i]) * (1 - ilogit(logit_spec[1])) # SC frequency of positive tests (prevalence corrected for imperfect tests)
+    y[i] ~ dbern(prob = p_sample)
+  }
+
+  # # post-stratified prevalence
+  # count <- 1
+  # for (i_zip in 1:N_zip) {
+  #   for (i_age in 1:4) {
+  #     for (i_eth in 1:4) {
+  #       for (i_male in 0:1) {
+  #         p_pop[count] = ilogit(b[1]
+  #                                  + b[2] * i_male
+  #                                  + b[3] * x_zip[i_zip]
+  #                                  + a_eth[i_eth]
+  #                                  + a_age[i_age]
+  #                                  + a_zip[i_zip])
+  #         count <- count + 1;
+  #       }
+  #     }
+  #   }
+  # }
+  # p_avg <- iprod(N_pop,p_pop) / sum(N_pop[])
+  
+})
+
+
+sc_mrp_model_nimble <- nimble::nimbleModel(
+  code = sc_mrp_nimble,
+  dimensions = list(p_pop = J),
+  data = list(
+    y=y,
+    y_sens=c(0, 78, 27, 25),
+    y_spec=c(0, 368, 30, 70, 1102, 300, 311, 500, 198, 99, 29, 146, 105, 50)
+  ),
+  constants = list(
+    N=N,
+    male=male,
+    eth=eth,
+    age=age,
+    zip=zip,
+    N_zip=N_zip,
+    x_zip=x_zip,
+    x_zip_zip = x_zip[zip],
+    J_spec=14,
+    n_spec=c(0, 371, 30, 70, 1102, 300, 311, 500, 200, 99, 31, 150, 108, 52),
+    J_sens=4,
+    n_sens=c(0, 85, 37, 35),
+    logit_spec_prior_scale=0.3,
+    logit_sens_prior_scale=0.3,
+    coef_prior_scale=0.5,
+    J=J,
+    N_pop=N_pop
+  )
+)
+
+
+
+
+
+
+
+sc_hier_model_n <- nimble::nimbleModel(
+  code = sc_hier_n,
+  data = list(
+    y_sample=50,
+    y_spec=c(0, 368, 30, 70, 1102, 300, 311, 500, 198, 99, 29, 146, 105, 50),
+    y_sens=c(0, 78, 27, 25)
+  ),
+  constants = list(
+    n_sample=3330,
+    J_spec=14,
+    n_spec=c(0, 371, 30, 70, 1102, 300, 311, 500, 200, 99, 31, 150, 108, 52),
+    J_sens=4,
+    n_sens=c(0, 85, 37, 35)
+  )
+)
+
+mon_vars <- c("p","mu_logit_spec","mu_logit_sens","sigma_logit_spec","sigma_logit_sens","logit_spec","logit_sens","p_sample")
+sc_hier_model_mcmc_n <- nimble::buildMCMC(conf = sc_hier_model_n,monitors = mon_vars)
+
+sc_hier_model_cpp_n <- nimble::compileNimble(sc_hier_model_n)
+
+sc_hier_model_cpp_mcmc_n <- nimble::compileNimble(sc_hier_model_mcmc_n, project = sc_hier_model_cpp_n)
+
+sc_hier_nimble_samp <- nimble::runMCMC(mcmc = sc_hier_model_cpp_mcmc_n,niter = 1.1e5,nburnin = 1e4,thin = 10,progressBar = TRUE)
