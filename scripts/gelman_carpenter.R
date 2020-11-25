@@ -8,6 +8,7 @@ rm(list=ls());gc()
 dev.off()
 library(rstan)
 library(nimble)
+library(data.table)
 library(ggplot2)
 rstan_options(auto_write = FALSE)
 
@@ -174,7 +175,7 @@ sc_hier_model <- rstan::stan(
   verbose = TRUE
 )
 
-stan_dens(sc_hier_model)
+# stan_dens(sc_hier_model)
 
 # NIMBLE
 sc_hier_n <- nimble::nimbleCode({
@@ -243,24 +244,32 @@ sc_hier_model_cpp_n <- nimble::compileNimble(sc_hier_model_n)
 
 sc_hier_model_cpp_mcmc_n <- nimble::compileNimble(sc_hier_model_mcmc_n, project = sc_hier_model_cpp_n)
 
-samples <- nimble::runMCMC(mcmc = sc_hier_model_cpp_mcmc_n,niter = 1e5,nburnin = 1e4,thin = 10,progressBar = TRUE)
+sc_hier_nimble_samp <- nimble::runMCMC(mcmc = sc_hier_model_cpp_mcmc_n,niter = 1.1e5,nburnin = 1e4,thin = 10,progressBar = TRUE)
 
 
-hist(samples[,"p"],breaks = 50)
-hist(extract(sc_hier_model,"p")[[1]],breaks = 50)
+# comparison plots
+sc_hier_nimble_samp <- as.data.table(sc_hier_nimble_samp)
+sc_hier_stan_samp <- as.data.table(as.matrix(sc_hier_model))
 
-area_plot_stan <- bayesplot::mcmc_hist(as.matrix(sc_hier_model)[,1:41])
-ggsave(filename = here::here("figs/hier_stan_hist.tiff"),plot = area_plot_stan,device = "tiff",width = 10,height = 6,compression ="lzw")
+cols_2plot <- c("p","mu_logit_spec","mu_logit_sens","sigma_logit_spec","sigma_logit_sens",paste0("logit_spec","[",1:14,"]"),paste0("logit_sens","[",1:4,"]"))
 
-area_plot_nimble <- bayesplot::mcmc_hist(samples)
-ggsave(filename = here::here("figs/hier_nimble_hist"),plot = area_plot_nimble,device = "tiff",width = 10,height = 6,compression ="lzw")
+sc_hier_nimble_samp <- sc_hier_nimble_samp[, ..cols_2plot]
+sc_hier_nimble_samp[,("iter") := 1:.N]
+sc_hier_nimble_samp$type <- "Nimble"
+sc_hier_stan_samp <- sc_hier_stan_samp[, ..cols_2plot]
+sc_hier_stan_samp[,("iter") := 1:.N]
+sc_hier_stan_samp$type <- "Stan"
 
-# sc_model_n <- nimble::nimbleModel(
-#   code = santa_clara_n,
-#   data = list(y_sample=50, y_spec=369+30, y_sens=25+78),
-#   constants = list(n_sample = 3330, n_spec=401, n_sens=122),
-#   inits = list(p = 0.1, spec = 0.9, sens= 0.9)
-# )
+sc_hier_samps <- rbind(sc_hier_stan_samp,sc_hier_nimble_samp)
+sc_hier_samps <- melt(sc_hier_samps,id.vars=c("iter","type"))
+
+sc_hier_hist <- ggplot(data=sc_hier_samps) +
+  geom_histogram(aes(value,after_stat(density),fill=type),alpha=0.35,bins=50,position="identity",color=adjustcolor("black",0.5),size=0.1) +
+  facet_wrap(. ~ variable,scales="free") +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),panel.grid.major=element_blank())
+
+ggsave(filename = here::here("figs/sc_hier_hist.tiff"),plot = sc_hier_hist,device = "tiff",width = 10,height = 8,compression ="lzw")
 
 
 # --------------------------------------------------------------------------------
