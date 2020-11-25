@@ -249,6 +249,11 @@ samples <- nimble::runMCMC(mcmc = sc_hier_model_cpp_mcmc_n,niter = 1e5,nburnin =
 hist(samples[,"p"],breaks = 50)
 hist(extract(sc_hier_model,"p")[[1]],breaks = 50)
 
+area_plot_stan <- bayesplot::mcmc_hist(as.matrix(sc_hier_model)[,1:41])
+ggsave(filename = here::here("figs/hier_stan_hist.tiff"),plot = area_plot_stan,device = "tiff",width = 10,height = 6,compression ="lzw")
+
+area_plot_nimble <- bayesplot::mcmc_hist(samples)
+ggsave(filename = here::here("figs/hier_nimble_hist"),plot = area_plot_nimble,device = "tiff",width = 10,height = 6,compression ="lzw")
 
 # sc_model_n <- nimble::nimbleModel(
 #   code = santa_clara_n,
