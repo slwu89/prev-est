@@ -441,7 +441,7 @@ sc_mrp_nimble <- nimble::nimbleCode({
     a_age[i] ~ dnorm(mean = 0, sd = sigma_age)
   }
   for(i in 1:N_zip){
-    a_zip ~ dnorm(mean = 0, sd = sigma_zip)
+    a_zip[i] ~ dnorm(mean = 0, sd = sigma_zip)
   }
   
   mu_logit_spec ~ dnorm(mean = 4, sd = 2) # hyperprior on mean of distribution of spec (gamma)
@@ -460,8 +460,9 @@ sc_mrp_nimble <- nimble::nimbleCode({
   # prior on centered intercept
   b[2] ~ dnorm(mean = 0, sd = coef_prior_scale)
   b[3] ~ dnorm(mean = 0, sd = coef_prior_scale / sd(x_zip_zip[]))
-  b[1] + b[2] * mean(male[]) + b[3] * mean(x_zip_zip[]) ~ dlogis(location = 0, scale = 1)
-  
+  # b[1] + b[2] * mean(male[]) + b[3] * mean(x_zip_zip[]) ~ dlogis(location = 0, scale = 1)
+  b[1] ~ dlogis(location = 0 - b[2] * mean(male[]) - b[3] * mean(x_zip_zip[]), scale = 1)
+
   # likelihood models
   
   # likelihood for 13 spec studies
@@ -477,29 +478,26 @@ sc_mrp_nimble <- nimble::nimbleCode({
   for(i in 1:N){
     p[i] <- ilogit(b[1] + b[2] * male[i] + b[3] * x_zip_zip[i] + a_eth[eth[i]] + a_age[age[i]] + a_zip[zip[i]])
     p_sample[i] <- p[i] * ilogit(logit_sens[1]) + (1 - p[i]) * (1 - ilogit(logit_spec[1])) # SC frequency of positive tests (prevalence corrected for imperfect tests)
-    y[i] ~ dbern(prob = p_sample)
+    y[i] ~ dbern(prob = p_sample[i])
   }
 
-  # # post-stratified prevalence
+  # post-stratified prevalence (using https://eli.thegreenplace.net/2015/memory-layout-of-multi-dimensional-arrays)
   # count <- 1
-  # for (i_zip in 1:N_zip) {
-  #   for (i_age in 1:4) {
-  #     for (i_eth in 1:4) {
-  #       for (i_male in 0:1) {
-  #         p_pop[count] = ilogit(b[1]
-  #                                  + b[2] * i_male
-  #                                  + b[3] * x_zip[i_zip]
-  #                                  + a_eth[i_eth]
-  #                                  + a_age[i_age]
-  #                                  + a_zip[i_zip])
-  #         count <- count + 1;
-  #       }
-  #     }
-  #   }
-  # }
-  # p_avg <- iprod(N_pop,p_pop) / sum(N_pop[])
+  for (i_zip in 1:N_zip) {
+    for (i_age in 1:4) {
+      for (i_eth in 1:4) {
+        for (i_male in 0:1) {
+          p_pop[(((i_zip-1) * 4*4*2) + ((i_age-1) * 4*2) + ((i_eth-1) * 2) + i_male) + 1] <- ilogit(b[1] + b[2] * i_male + b[3] * x_zip[i_zip] + a_eth[i_eth] + a_age[i_age] + a_zip[i_zip])
+          # p_pop[count] <- ilogit(b[1] + b[2] * i_male + b[3] * x_zip[i_zip] + a_eth[i_eth] + a_age[i_age] + a_zip[i_zip])
+          # count <- count + 1
+        }
+      }
+    }
+  }
+  p_avg <- inprod(N_pop[],p_pop[]) / sum(N_pop[])
   
 })
+
 
 
 sc_mrp_model_nimble <- nimble::nimbleModel(
