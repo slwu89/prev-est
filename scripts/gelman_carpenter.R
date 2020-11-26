@@ -267,6 +267,7 @@ ggsave(filename = here::here("figs/sc_hier_hist.tiff"),plot = sc_hier_hist,devic
 #   even better model: hierarchical, MRP
 # --------------------------------------------------------------------------------
 
+# STAN
 sc_hier_mrp <- '
   data {
     int<lower = 0> N;  // number of tests in the sample (3330 for Santa Clara)
@@ -529,33 +530,33 @@ sc_mrp_model_nimble <- nimble::nimbleModel(
   )
 )
 
+mon_vars <- c("p_avg","mu_logit_spec","mu_logit_sens","sigma_logit_spec","sigma_logit_sens","logit_spec","logit_sens")
+sc_mrp_model_mcmc_n <- nimble::buildMCMC(conf = sc_mrp_model_nimble,monitors = mon_vars)
 
+sc_mrp_model_nimble_cpp <- nimble::compileNimble(sc_mrp_model_nimble)
 
+sc_mrp_model_mcmc_nimble_cpp <- nimble::compileNimble(sc_mrp_model_mcmc_n, project = sc_mrp_model_nimble_cpp)
 
+sc_mrp_nsamp <- nimble::runMCMC(mcmc = sc_mrp_model_mcmc_nimble_cpp,niter = 1.1e5,nburnin = 1e4,thin = 10,progressBar = TRUE)
 
+hist(sc_mrp_nsamp[,"p_avg"],probability = T,breaks = 30)
+hist(extract(sc_hier_mrp_model,"p_avg")[[1]],probability = T,breaks = 30)
 
-
-sc_hier_model_n <- nimble::nimbleModel(
-  code = sc_hier_n,
-  data = list(
-    y_sample=50,
-    y_spec=c(0, 368, 30, 70, 1102, 300, 311, 500, 198, 99, 29, 146, 105, 50),
-    y_sens=c(0, 78, 27, 25)
-  ),
-  constants = list(
-    n_sample=3330,
-    J_spec=14,
-    n_spec=c(0, 371, 30, 70, 1102, 300, 311, 500, 200, 99, 31, 150, 108, 52),
-    J_sens=4,
-    n_sens=c(0, 85, 37, 35)
-  )
+dat <- rbind(
+  data.frame(prev = sc_mrp_nsamp[,"p_avg"],type = "Nimble"),
+  data.frame(prev = extract(sc_hier_mrp_model,"p_avg")[[1]],type = "Stan")
 )
 
-mon_vars <- c("p","mu_logit_spec","mu_logit_sens","sigma_logit_spec","sigma_logit_sens","logit_spec","logit_sens","p_sample")
-sc_hier_model_mcmc_n <- nimble::buildMCMC(conf = sc_hier_model_n,monitors = mon_vars)
+plot_prev_mrp <- ggplot(data = dat) +
+  geom_histogram(aes(prev,after_stat(density),fill=type),alpha=0.35,bins=60,position="identity",color=adjustcolor("black",0.5),size=0.25) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),panel.grid.major=element_blank())
 
-sc_hier_model_cpp_n <- nimble::compileNimble(sc_hier_model_n)
+ggsave(filename = here::here("figs/mrp_prevalence_hist.tiff"),plot = plot_prev_mrp,device = "tiff",width = 8,height = 6,compression ="lzw")
 
-sc_hier_model_cpp_mcmc_n <- nimble::compileNimble(sc_hier_model_mcmc_n, project = sc_hier_model_cpp_n)
+plot_prev_mrp_dens <- ggplot(data = dat) +
+  geom_density(aes(prev,after_stat(ndensity),fill=type),alpha=0.35,color=adjustcolor("black",0.5),size=0.5) +
+  theme_bw() +
+  theme(panel.grid.minor = element_blank(),panel.grid.major=element_blank())
 
-sc_hier_nimble_samp <- nimble::runMCMC(mcmc = sc_hier_model_cpp_mcmc_n,niter = 1.1e5,nburnin = 1e4,thin = 10,progressBar = TRUE)
+ggsave(filename = here::here("figs/mrp_prevalence_dens.tiff"),plot = plot_prev_mrp_dens,device = "tiff",width = 8,height = 6,compression ="lzw")
