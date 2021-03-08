@@ -458,7 +458,7 @@ sc_mrp_nimble <- nimble::nimbleCode({
   
   # likelihood model for SC data
   for(i in 1:N){
-    p[i] <- ilogit(b[1] + b[2] * male[i] + b[3] * x_zip_zip[i] + a_eth[eth[i]] + a_age[age[i]] + a_zip[zip[i]])
+    p[i] <- ilogit(b[1] + b[2] * male[i] + b[3] * x_zip_zip[i] + a_eth[eth[i]] + a_age[age[i]] + a_zip[zip[i]] + a_income[a_income[i]])
     #p_sample[i] <- p[i] * ilogit(logit_sens[1]) + (1 - p[i]) * (1 - ilogit(logit_spec[1])) # SC frequency of positive tests (prevalence corrected for imperfect tests)
     y[i] ~ dbern(prob = p[i])
   }
