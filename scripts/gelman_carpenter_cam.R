@@ -374,7 +374,7 @@ eth <- sample(rep(1:4, c(2118, 623, 266, 306+17)))
 age <- sample(rep(1:4, c(71, 550, 2542, 167)))
 N_zip <- 58
 zip <- sample(1:N_zip, 3330, replace=TRUE)
-income <- sample(rep(1:6), rep(3330/6, 6))
+income <- sample(x = 1:6,size = N,replace = T)
 
 
 # Setting up the zip code level predictor.  In this case we will use a random number with mean 50 and standard deviation 20.  These are arbitrary numbers that we chose just to be able to test the centering and scaling in the model.   In real life we might use %Latino or average income in the zip code
@@ -501,11 +501,26 @@ sc_mrp_nimble <- nimble::nimbleCode({
   
 })
 
+N_age <- 4
+N_eth <- 4
+N_male <- 2
+count_index <- array(data = NA,dim = c(N_zip,N_age,N_eth,N_male),dimnames = list("zip"=NULL,"age"=NULL,"eth"=NULL,"male"=NULL))
+i <- 1
+for (i_zip in 1:N_zip){
+  for (i_age in 1:N_age){
+    for (i_eth in 1:N_eth){
+      for (i_male in 1:N_male){
+        count_index[i_zip, i_age, i_eth, i_male] <- i
+        i <- i + 1
+      }
+    }
+  }
+}
 
 
 sc_mrp_model_nimble <- nimble::nimbleModel(
   code = sc_mrp_nimble,
-  dimensions = list(p_pop = J),
+  dimensions = list(p_pop = J, p2 = 6),
   data = list(
     y=y,
     y_sens=c(0, 78, 27, 25),
@@ -521,6 +536,10 @@ sc_mrp_model_nimble <- nimble::nimbleModel(
     N_zip=N_zip,
     x_zip=x_zip,
     x_zip_zip = x_zip[zip],
+    count_index=count_index,
+    N_age=N_age,
+    N_eth=N_eth,
+    N_male=N_male,
     J_spec=14,
     n_spec=c(0, 371, 30, 70, 1102, 300, 311, 500, 200, 99, 31, 150, 108, 52),
     J_sens=4,
