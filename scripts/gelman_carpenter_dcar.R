@@ -15,25 +15,16 @@ library(CARBayesdata, quietly = TRUE)
 library(sp, quietly = TRUE)
 library(spdep, quietly = TRUE)
 
-data(GGHB.IG)
-data(respiratorydata)
-#We handle the spatial analysis here with nb2WB from the package spdep.
-respiratorydata_spatial <- merge(x = GGHB.IG, y = respiratorydata, 
-                                 by = "IG", all.x = FALSE)
-W.nb <- poly2nb(respiratorydata_spatial, row.names =  rownames(respiratorydata_spatial@data))
-## Determine neighborhood/adjacency information needed for neighborhood-based CAR model
-nbInfo <- nb2WB(W.nb)
+# dcar example from here
+# https://r-nimble.org/nimbleExamples/CAR.html
 
-# A vector of indices indicating which regions are neighbors of which.
-nbInfo$adj
 
-stop()
+# get spatial data for zipcodes in covid study ---------------------------------
 
-# get zipcodes for covid study
-setwd("~/Google Drive/02_research/covid/info_flyer1/")
-db <- load("tmap_scrn_data.RData"); db
+covid_zips <- c("94530", "94547", "94564", "94601", "94602", "94603", "94605", "94606", "94607", "94608", "94609", "94610", "94611", "94612", "94618", "94619", "94621", "94702", "94703", "94704", "94705", "94706", "94707", "94708", "94709", "94710", "94801", "94803", "94804", "94805", "94806")
+
 options(tigris_use_cache = TRUE)
-zcta_bounds_region <- zctas(cb = T, starts_with = unique(map_scrn_zip$GEOID10))
+zcta_bounds_region <- zctas(cb = T, starts_with = covid_zips)
 zcta_bounds_region
 
 W.nb <- poly2nb(zcta_bounds_region, 
@@ -52,11 +43,8 @@ length(nbInfo$num)
 nbInfo$num
 
 
-################################################################################  
-# COVID Ex
-################################################################################  
+# set up data ------------------------------------------------------------------
 
-# set up data -------
 N <- 3330
 n <- rep(1, 3330)
 #y <- sample(rep(c(0, 1), c(3330 - 50, 50)))
@@ -91,7 +79,8 @@ for (i_zip in 1:N_zip){
 }
 
 
-# NIMBLE version
+# sc_mrp_model -----------------------------------------------------------------
+
 sc_mrp_nimble <- nimble::nimbleCode({
   
   # prior models
@@ -163,16 +152,14 @@ sc_mrp_model_mcmc_n <- nimble::buildMCMC(conf = sc_mrp_model_nimble,monitors = m
 sc_mrp_model_nimble_cpp <- nimble::compileNimble(sc_mrp_model_nimble)
 sc_mrp_model_mcmc_nimble_cpp <- nimble::compileNimble(sc_mrp_model_mcmc_n, 
                                                       project = sc_mrp_model_nimble_cpp)
-sc_mrp_nsamp <- nimble::runMCMC(mcmc = sc_mrp_model_mcmc_nimble_cpp,niter = 1.1e5/4,nburnin = 1e4/4,thin = 10,progressBar = TRUE, summary = T)
-
-
-################################
-# dcar version
-################################
+sc_mrp_nsamp <- nimble::runMCMC(mcmc = sc_mrp_model_mcmc_nimble_cpp,niter = 1.1e5,nburnin = 1e4,thin = 10,progressBar = TRUE, summary = T)
 
 
 
-# NIMBLE version
+# dcar mrp nimble --------------------------------------------------------------
+
+
+# code
 car_mrp_nimble <- nimble::nimbleCode({
   
   # prior models
@@ -227,6 +214,7 @@ car_mrp_nimble <- nimble::nimbleCode({
   
 })
 
+# model
 car_mrp_model_nimble <- nimble::nimbleModel(
   code = car_mrp_nimble,
   dimensions = list(p_pop = J),
@@ -252,15 +240,25 @@ car_mrp_model_nimble <- nimble::nimbleModel(
 )
 
 
-mon_vars <- c("p_avg", "p_pop", "tau")
+mon_vars <- c("p_avg", "p_pop")
+# build
 car_mrp_model_mcmc_n <- nimble::buildMCMC(conf = car_mrp_model_nimble,monitors = mon_vars)
+# compile
 car_mrp_model_nimble_cpp <- nimble::compileNimble(car_mrp_model_nimble)
 car_mrp_model_mcmc_nimble_cpp <- nimble::compileNimble(car_mrp_model_mcmc_n, 
                                                       project = car_mrp_model_nimble_cpp)
-car_mrp_nsamp <- nimble::runMCMC(mcmc = sc_mrp_model_mcmc_nimble_cpp,niter = 1.1e5/4,nburnin = 1e4/4,thin = 10,progressBar = TRUE, summary = T)
+
+# run
+car_mrp_nsamp <- nimble::runMCMC(mcmc = sc_mrp_model_mcmc_nimble_cpp,niter = 1.1e5,nburnin = 1e4,thin = 10,progressBar = TRUE, summary = T)
 
 sc_mrp_nsamp$summary %>% head
 car_mrp_nsamp$summary %>% head
+
+
+########
+# aggregate predictions by zipcode
+########
+
 
 zip_index <- rep(1:31, J/31) 
 zip_index %>% head
@@ -291,12 +289,20 @@ summary <- full_join(p_pop_car_zip_summary, p_pop_mrp_zip_summary, by = "zip", s
 
 summary %>% head
 
-# truth
-table(zip, y) %>% prop.table(1) %>% data.frame() %>% filter(y==1) %>% 
+# add truth
+summary <- table(zip, y) %>% prop.table(1) %>% data.frame() %>% filter(y==1) %>% 
   mutate(zip = as.integer(as.character(zip))) %>% 
-  full_join(summary)
+  full_join(summary) %>% select(-y)
+colnames(summary) <- c("zip", "true_p", "mrp_p_mean", "mrp_p_median", "mrp_p_ll", "mrp_p_ul", "car_p_mean", "car_p_median", "car_p_ll", "car_p_ul")
 
-
+# plot mrp vs dcar
 summary %>% ggplot() + 
-  geom_point(aes(x=V1mrp, y = V1car)) + 
+  geom_point(aes(x=mrp_p_mean, y = car_p_mean)) + 
   geom_abline(slope=1)
+
+summary %>% head
+summary %>% select(zip, true_p, contains("mean")) %>% reshape2::melt(id.vars="zip") %>% 
+  ggplot() + 
+  geom_col(aes(x = factor(zip), y = value, fill = variable), position = "dodge")
+
+                                                               
